@@ -1,0 +1,35 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: lai-transcription-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  worker:
+    build: .
+    container_name: lai-worker-transcription
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "${PORT:-8770}:8770"
+    environment:
+      PORT: "8770"
+      API_KEY: "${API_KEY:?set API_KEY}"
+      REDIS_URL: "redis://redis:6379/0"
+      WHISPER_UPSTREAM_URL: "${WHISPER_UPSTREAM_URL:-https://whisper.lai.ia.br}"
+      WHISPER_API_KEY: "${WHISPER_API_KEY:?set WHISPER_API_KEY}"
+      MAX_CONCURRENCY: "${MAX_CONCURRENCY:-2}"
+      QUEUE_SIZE: "${QUEUE_SIZE:-100}"
+      JOB_TTL: "${JOB_TTL:-1h}"
+      MAX_AUDIO_BYTES: "${MAX_AUDIO_BYTES:-104857600}"
+      DOWNLOAD_TIMEOUT: "${DOWNLOAD_TIMEOUT:-600s}"
+      UPSTREAM_TIMEOUT: "${UPSTREAM_TIMEOUT:-600s}"
+      DEFAULT_LANGUAGE: "${DEFAULT_LANGUAGE:-pt}"
+    restart: unless-stopped
