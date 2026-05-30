@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/lai/worker-transcription/internal/audio"
@@ -57,17 +58,33 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// auth enforces the X-API-Key header against the configured client API key,
-// using a constant-time comparison.
+// auth enforces the client API key using a constant-time comparison. The key is
+// accepted either via the X-API-Key header or as an Authorization: Bearer token
+// (for compatibility with gateway-style clients).
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := r.Header.Get("X-API-Key")
+		key := extractAPIKey(r)
 		if subtle.ConstantTimeCompare([]byte(key), []byte(s.cfg.APIKey)) != 1 {
-			writeError(w, http.StatusUnauthorized, "invalid or missing X-API-Key")
+			writeError(w, http.StatusUnauthorized, "invalid or missing API key (X-API-Key or Authorization: Bearer)")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// extractAPIKey reads the client key from X-API-Key first, falling back to an
+// Authorization: Bearer <token> header.
+func extractAPIKey(r *http.Request) string {
+	if key := r.Header.Get("X-API-Key"); key != "" {
+		return key
+	}
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		const prefix = "Bearer "
+		if len(auth) > len(prefix) && strings.EqualFold(auth[:len(prefix)], prefix) {
+			return strings.TrimSpace(auth[len(prefix):])
+		}
+	}
+	return ""
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

@@ -120,6 +120,10 @@ assert_eq "POST sem X-API-Key -> 401" "401" "$CODE"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$WORKER_PORT/jobs/nao-existe" -H "X-API-Key: $API_KEY")
 assert_eq "GET job inexistente -> 404" "404" "$CODE"
 
+# auth via Authorization: Bearer (compat com gateway) deve passar; 404 = autenticou.
+CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$WORKER_PORT/jobs/nao-existe" -H "Authorization: Bearer $API_KEY")
+assert_eq "auth via Bearer aceita (404, não 401)" "404" "$CODE"
+
 # =====================================================================
 info "5/6  job por URL"
 RESP=$(curl -s -X POST "http://localhost:$WORKER_PORT/transcribe/url" \

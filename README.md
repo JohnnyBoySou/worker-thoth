@@ -38,13 +38,16 @@ Cliente ──POST (X-API-Key)──► HTTP handler ──enfileira jobId──
 
 ## API HTTP
 
-| Método/Rota            | Auth        | Descrição |
-|------------------------|-------------|-----------|
-| `GET /health`          | livre       | status, profundidade da fila, jobs em voo, áudio em RAM, heap |
-| `POST /transcribe`     | `X-API-Key` | `multipart`: `audio` (File), `language` (opcional) → `202 {jobId,status}` |
-| `POST /transcribe/url` | `X-API-Key` | JSON `{ url, language }` → `202 {jobId,status}` |
-| `GET /jobs/:jobId`     | `X-API-Key` | `{ jobId, status, result, error, createdAt, completedAt }` |
+| Método/Rota            | Auth   | Descrição |
+|------------------------|--------|-----------|
+| `GET /health`          | livre  | status, profundidade da fila, jobs em voo, áudio em RAM, heap |
+| `POST /transcribe`     | sim    | `multipart`: `audio` (File), `language` (opcional) → `202 {jobId,status}` |
+| `POST /transcribe/url` | sim    | JSON `{ url, language }` → `202 {jobId,status}` |
+| `GET /jobs/:jobId`     | sim    | `{ jobId, status, result, error, createdAt, completedAt }` |
 
+- **Auth:** envie a chave via `X-API-Key: <key>` **ou** `Authorization: Bearer <key>`
+  (compat. com clientes estilo gateway). `X-API-Key` tem precedência se ambos vierem.
+  Comparação constant-time; sem chave válida → `401`.
 - `status`: `queued` → `processing` → `completed` \| `failed`.
 - Concluído: `result` = corpo do Whisper **intacto** (`{text,language,elapsed_ms}`).
 - `404` se o `jobId` não existe **ou expirou** (TTL).
