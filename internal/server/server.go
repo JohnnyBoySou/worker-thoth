@@ -5,7 +5,9 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -115,11 +117,53 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := extractAPIKey(r)
 		if subtle.ConstantTimeCompare([]byte(key), []byte(s.cfg.APIKey)) != 1 {
+			s.logAuthFailure(r, key)
 			writeError(w, http.StatusUnauthorized, "invalid or missing API key (X-API-Key or Authorization: Bearer)")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// logAuthFailure emits a TEMPORARY diagnostic on 401s to compare the presented
+// credential against the configured key WITHOUT leaking either secret. It logs
+// only the length, first 3 / last 4 chars, and an 8-hex-char SHA-256 prefix of
+// each, plus the raw Authorization scheme. Remove once the client is fixed.
+func (s *Server) logAuthFailure(r *http.Request, presented string) {
+	fingerprint := func(v string) (int, string, string, string) {
+		if v == "" {
+			return 0, "", "", ""
+		}
+		sum := sha256.Sum256([]byte(v))
+		head := v
+		if len(head) > 3 {
+			head = head[:3]
+		}
+		tail := v
+		if len(tail) > 4 {
+			tail = tail[len(tail)-4:]
+		}
+		return len(v), head, tail, hex.EncodeToString(sum[:])[:8]
+	}
+	pLen, pHead, pTail, pHash := fingerprint(presented)
+	_, _, _, wantHash := fingerprint(s.cfg.APIKey)
+
+	authHeader := r.Header.Get("Authorization")
+	scheme := ""
+	if i := strings.IndexByte(authHeader, ' '); i > 0 {
+		scheme = authHeader[:i]
+	}
+
+	s.logger.Warn("auth failure diagnostic",
+		"path", r.URL.Path,
+		"authScheme", scheme,
+		"presentedLen", pLen,
+		"presentedHead", pHead,
+		"presentedTail", pTail,
+		"presentedHash8", pHash,
+		"expectedHash8", wantHash,
+		"matches", pHash == wantHash,
+	)
 }
 
 // extractAPIKey reads the client key from X-API-Key first, falling back to an
