@@ -48,6 +48,10 @@ Cliente ──POST (X-API-Key)──► HTTP handler ──enfileira jobId──
 - **Auth:** envie a chave via `X-API-Key: <key>` **ou** `Authorization: Bearer <key>`
   (compat. com clientes estilo gateway). `X-API-Key` tem precedência se ambos vierem.
   Comparação constant-time; sem chave válida → `401`.
+- **Aliases de gateway:** as rotas de transcrição também respondem sob o prefixo
+  `/v1/audio/transcriptions` — i.e. `POST /v1/audio/transcriptions`,
+  `POST /v1/audio/transcriptions/url` e `GET /v1/audio/transcriptions/jobs/:id` —
+  para clientes que já chamam `gateway.lai.ia.br/v1/audio/transcriptions/...`.
 - `status`: `queued` → `processing` → `completed` \| `failed`.
 - Concluído: `result` = corpo do Whisper **intacto** (`{text,language,elapsed_ms}`).
 - `404` se o `jobId` não existe **ou expirou** (TTL).

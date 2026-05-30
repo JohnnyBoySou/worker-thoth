@@ -135,6 +135,17 @@ FINAL=$(poll_status "$JOB")
 assert_contains "URL job completed" '"status":"completed"' "$FINAL"
 assert_contains "URL repassa corpo do Whisper" '"elapsed_ms":42' "$FINAL"
 
+# alias do gateway (/v1/audio/transcriptions/...) + auth via Bearer
+GW="http://localhost:$WORKER_PORT/v1/audio/transcriptions"
+RESP=$(curl -s -X POST "$GW/url" \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d "{\"url\":\"http://127.0.0.1:$MOCK_PORT/clip.mp3\"}")
+assert_contains "alias gateway POST /url -> queued" '"status":"queued"' "$RESP"
+JOB=$(echo "$RESP" | sed -E 's/.*"jobId":"([^"]+)".*/\1/')
+FINAL=$(curl -s "$GW/jobs/$JOB" -H "Authorization: Bearer $API_KEY")
+# pode ainda estar processando; só garante que a rota existe (não 404 de rota)
+assert_contains "alias gateway GET /jobs aceito" "$JOB" "$FINAL"
+
 # =====================================================================
 info "6/6  job por upload (áudio efêmero)"
 head -c 2048 /dev/urandom > "$TMP/clip.wav"

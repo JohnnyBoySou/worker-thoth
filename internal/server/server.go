@@ -48,13 +48,31 @@ func New(cfg config.Config, store *redisstore.Store, audioStore *audio.Store, po
 	}
 }
 
-// Handler returns the configured HTTP mux.
+// gatewayPrefix mirrors the hosted gateway's namespace so existing clients that
+// call https://gateway.lai.ia.br/v1/audio/transcriptions/... keep working
+// against this worker without any change.
+const gatewayPrefix = "/v1/audio/transcriptions"
+
+// Handler returns the configured HTTP mux. Each transcription route is exposed
+// both under its native path and under the gateway-compatible alias.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
-	mux.Handle("POST /transcribe", s.auth(http.HandlerFunc(s.handleUpload)))
-	mux.Handle("POST /transcribe/url", s.auth(http.HandlerFunc(s.handleURL)))
-	mux.Handle("GET /jobs/{jobId}", s.auth(http.HandlerFunc(s.handleGetJob)))
+
+	upload := s.auth(http.HandlerFunc(s.handleUpload))
+	url := s.auth(http.HandlerFunc(s.handleURL))
+	getJob := s.auth(http.HandlerFunc(s.handleGetJob))
+
+	// Native routes.
+	mux.Handle("POST /transcribe", upload)
+	mux.Handle("POST /transcribe/url", url)
+	mux.Handle("GET /jobs/{jobId}", getJob)
+
+	// Gateway-compatible aliases.
+	mux.Handle("POST "+gatewayPrefix, upload)
+	mux.Handle("POST "+gatewayPrefix+"/url", url)
+	mux.Handle("GET "+gatewayPrefix+"/jobs/{jobId}", getJob)
+
 	return mux
 }
 
