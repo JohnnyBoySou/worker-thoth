@@ -90,13 +90,25 @@ API_KEY=... WHISPER_API_KEY=... docker compose up --build
 ## Testes
 
 ```bash
-go test ./...
+go test ./...   # unitários
 go vet ./...
 ```
 
 Cobrem: store de áudio (Put/Take/Drop + zeragem), parsing de config, cliente
 Whisper (forward de `X-API-Key`/`language`/áudio, 4xx permanente vs 5xx
 transitório) e download (limite por `Content-Length` e por stream chunked).
+
+### Smoke test end-to-end
+
+`scripts/smoke.sh` é self-contained: sobe um Redis (docker) e um Whisper **falso**,
+compila e roda o worker e exercita todas as rotas (`/health`, 401, 404, job por
+URL e por upload), validando que o job chega a `completed`, que o corpo do
+Whisper é repassado e que o áudio é liberado da memória (`audioInMemory:0`).
+
+```bash
+./scripts/smoke.sh
+# Requisitos: go, docker, curl, python3. Não precisa do Whisper real.
+```
 
 ## Layout
 
