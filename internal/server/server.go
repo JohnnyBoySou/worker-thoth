@@ -73,7 +73,39 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST "+gatewayPrefix+"/url", url)
 	mux.Handle("GET "+gatewayPrefix+"/jobs/{jobId}", getJob)
 
-	return mux
+	return s.accessLog(mux)
+}
+
+// statusRecorder captures the response status code for access logging.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+// accessLog logs every incoming request (method, path, status, duration). It
+// records whether an auth credential was present — never the credential itself —
+// so misrouted/unauthenticated calls are diagnosable without leaking secrets.
+func (s *Server) accessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		s.logger.Info("http request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.status,
+			"durationMs", time.Since(start).Milliseconds(),
+			"hasApiKey", r.Header.Get("X-API-Key") != "",
+			"hasBearer", strings.HasPrefix(strings.ToLower(r.Header.Get("Authorization")), "bearer "),
+			"remoteAddr", r.RemoteAddr,
+			"userAgent", r.UserAgent(),
+		)
+	})
 }
 
 // auth enforces the client API key using a constant-time comparison. The key is
