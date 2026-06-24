@@ -24,8 +24,10 @@ Cliente ──POST (X-API-Key)──► HTTP handler ──enfileira jobId──
 - **Fila + estado:** Redis Stream (`transcription:queue`) com consumer group
   `workers` para entrega *at-least-once* (`XACK` + `XAUTOCLAIM` para órfãos).
   Estado por job no hash `job:{id}` com TTL (`JOB_TTL`).
-- **Concorrência:** `MAX_CONCURRENCY` goroutines → no máximo N chamadas
-  simultâneas ao Whisper (protege a GPU única).
+- **Concorrência:** `MAX_CONCURRENCY` goroutines processam jobs em paralelo
+  (downloads de URL, preparo do multipart). A chamada ao Whisper, porém, é
+  **serializada por um gate interno no client** → no máximo **uma** transcrição
+  bate na GPU única por vez, independentemente de `MAX_CONCURRENCY`.
 - **Memória:** uploads ficam no store em memória do processo (`internal/audio`),
   removidos e zerados ao concluir. Downloads por URL respeitam `MAX_AUDIO_BYTES`
   via `Content-Length` **e** `io.LimitReader` (não confia no header).

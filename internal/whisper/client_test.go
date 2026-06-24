@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -50,6 +52,76 @@ func TestTranscribeForwardsAudioAndKey(t *testing.T) {
 	}
 	if res.Body != `{"text":"olá","language":"pt","elapsed_ms":12}` {
 		t.Errorf("body not forwarded verbatim: %q", res.Body)
+	}
+}
+
+func TestTranscribeSerializesUpstreamCalls(t *testing.T) {
+	// The server records the peak number of concurrent in-flight requests. With
+	// the gate, two concurrent Transcribe calls must never overlap upstream.
+	var current, peak atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := current.Add(1)
+		for {
+			p := peak.Load()
+			if n <= p || peak.CompareAndSwap(p, n) {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond) // hold the "GPU" so an overlap would show
+		current.Add(-1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"text":"ok"}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "k", 5*time.Second)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := c.Transcribe(context.Background(), "a", []byte("x"), "pt"); err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := peak.Load(); got != 1 {
+		t.Errorf("peak concurrent upstream calls = %d, want 1", got)
+	}
+}
+
+func TestTranscribeGateRespectsContext(t *testing.T) {
+	// A slow upstream holds the gate; a second call with an already-cancelled
+	// context must return immediately instead of blocking on the gate.
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	c := New(srv.URL, "k", 5*time.Second)
+
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		_, _ = c.Transcribe(context.Background(), "a", []byte("x"), "pt") // holds the gate
+	}()
+	<-started
+	time.Sleep(20 * time.Millisecond) // let the first call grab the gate
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := c.Transcribe(ctx, "b", []byte("y"), "pt")
+	if err == nil {
+		t.Fatal("expected error from cancelled context while gate is held")
+	}
+	if !IsTransient(err) {
+		t.Errorf("gate-wait cancellation should be transient, got: %v", err)
 	}
 }
 

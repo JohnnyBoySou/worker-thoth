@@ -22,6 +22,10 @@ type Client struct {
 	baseURL string
 	apiKey  string
 	http    *http.Client
+	// gate serializes the upstream call so the single Whisper GPU never receives
+	// more than one transcription at a time, regardless of how many workers run.
+	// Buffered to 1 = at most one in-flight Transcribe; others queue here.
+	gate chan struct{}
 }
 
 // New builds a Whisper client. The timeout bounds the whole transcription call.
@@ -30,6 +34,7 @@ func New(baseURL, apiKey string, timeout time.Duration) *Client {
 		baseURL: baseURL,
 		apiKey:  apiKey,
 		http:    &http.Client{Timeout: timeout},
+		gate:    make(chan struct{}, 1),
 	}
 }
 
@@ -78,6 +83,15 @@ func (c *Client) Transcribe(ctx context.Context, filename string, audio []byte, 
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("X-API-Key", c.apiKey)
+
+	// Serialize the upstream call: only one transcription hits the GPU at a time.
+	// Acquiring respects ctx so a cancelled/timed-out job never blocks the queue.
+	select {
+	case c.gate <- struct{}{}:
+		defer func() { <-c.gate }()
+	case <-ctx.Done():
+		return Result{}, &transientError{err: fmt.Errorf("whisper gate wait: %w", ctx.Err())}
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
