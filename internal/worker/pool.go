@@ -16,6 +16,7 @@ import (
 	"github.com/lai/worker-transcription/internal/job"
 	"github.com/lai/worker-transcription/internal/redisstore"
 	"github.com/lai/worker-transcription/internal/whisper"
+	"github.com/lai/worker-transcription/internal/window"
 )
 
 const (
@@ -24,6 +25,9 @@ const (
 	claimMinIdle   = 2 * time.Minute
 	maxRetries     = 2
 	retryBaseDelay = time.Second
+	// windowPoll caps how long a worker sleeps while the processing window is
+	// closed, so it re-evaluates periodically (robust to clock/DST changes).
+	windowPoll = time.Minute
 )
 
 // Pool consumes the queue with a fixed number of worker goroutines.
@@ -36,6 +40,7 @@ type Pool struct {
 	maxAudioBytes   int64
 	downloadTimeout time.Duration
 	defaultLanguage string
+	window          window.Window
 
 	inFlight atomic.Int64
 }
@@ -50,6 +55,7 @@ type Config struct {
 	MaxAudioBytes   int64
 	DownloadTimeout time.Duration
 	DefaultLanguage string
+	Window          window.Window
 }
 
 // New creates a worker pool.
@@ -63,6 +69,7 @@ func New(cfg Config) *Pool {
 		maxAudioBytes:   cfg.MaxAudioBytes,
 		downloadTimeout: cfg.DownloadTimeout,
 		defaultLanguage: cfg.DefaultLanguage,
+		window:          cfg.Window,
 	}
 }
 
@@ -83,10 +90,29 @@ func (p *Pool) Run(ctx context.Context) {
 
 // consume is the main loop for a single worker goroutine.
 func (p *Pool) consume(ctx context.Context, consumer string) {
+	closed := false // track window state to log only on transitions
 	for {
 		if ctx.Err() != nil {
 			return
 		}
+		// Outside the processing window: stay idle without reading/downloading so
+		// jobs simply accumulate in the queue until the window opens.
+		if !p.window.IsOpen(time.Now()) {
+			if !closed {
+				p.logger.Info("processing window closed; pausing",
+					"consumer", consumer, "reopensIn", p.window.NextOpen(time.Now()).String())
+				closed = true
+			}
+			if !sleep(ctx, p.windowSleep()) {
+				return
+			}
+			continue
+		}
+		if closed {
+			p.logger.Info("processing window open; resuming", "consumer", consumer)
+			closed = false
+		}
+
 		msgs, err := p.store.Read(ctx, consumer, 1, readBlock)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -111,6 +137,9 @@ func (p *Pool) claimLoop(ctx context.Context, consumer string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if !p.window.IsOpen(time.Now()) {
+				continue // don't reclaim orphans while the window is closed
+			}
 			msgs, err := p.store.Claim(ctx, consumer, claimMinIdle, 10)
 			if err != nil {
 				p.logger.Error("orphan claim failed", "err", err)
@@ -244,6 +273,16 @@ func (p *Pool) ack(ctx context.Context, m redisstore.QueuedMessage, log *slog.Lo
 	if err := p.store.Ack(ctx, m.MessageID); err != nil {
 		log.Error("ack failed", "messageId", m.MessageID, "err", err)
 	}
+}
+
+// windowSleep returns how long to idle while the window is closed: until it
+// reopens, but capped at windowPoll so the loop re-evaluates periodically.
+func (p *Pool) windowSleep() time.Duration {
+	d := p.window.NextOpen(time.Now())
+	if d <= 0 || d > windowPoll {
+		return windowPoll
+	}
+	return d
 }
 
 // nowRFC3339 returns the current time formatted for the job timestamps.

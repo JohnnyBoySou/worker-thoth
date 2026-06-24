@@ -28,12 +28,12 @@ type inFlightReporter interface {
 
 // Server holds the HTTP dependencies.
 type Server struct {
-	cfg     config.Config
-	store   *redisstore.Store
-	audio   *audio.Store
-	pool    inFlightReporter
-	logger  *slog.Logger
-	newID   func() string
+	cfg    config.Config
+	store  *redisstore.Store
+	audio  *audio.Store
+	pool   inFlightReporter
+	logger *slog.Logger
+	newID  func() string
 }
 
 // New builds the server. newID generates unique job IDs.
@@ -154,6 +154,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		code = http.StatusServiceUnavailable
 	}
 
+	now := time.Now()
 	writeJSON(w, code, map[string]any{
 		"status":        status,
 		"queueDepth":    queueLen,
@@ -163,6 +164,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"redisOk":       redisOK,
 		"upstream":      s.cfg.WhisperUpstreamURL,
 		"heapAllocMB":   mem.HeapAlloc / (1 << 20),
+		"whisperWindow": map[string]any{
+			"enabled":         s.cfg.WhisperWindow.Enabled(),
+			"open":            s.cfg.WhisperWindow.IsOpen(now),
+			"nextOpenSeconds": int64(s.cfg.WhisperWindow.NextOpen(now).Seconds()),
+		},
 	})
 }
 

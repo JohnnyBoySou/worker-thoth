@@ -16,6 +16,10 @@ import (
 	"syscall"
 	"time"
 
+	// Embed the IANA timezone database so WHISPER_WINDOW_TZ resolves on the
+	// distroless/static runtime image, which ships no system tzdata.
+	_ "time/tzdata"
+
 	"github.com/lai/worker-transcription/internal/audio"
 	"github.com/lai/worker-transcription/internal/config"
 	"github.com/lai/worker-transcription/internal/redisstore"
@@ -61,6 +65,7 @@ func run(logger *slog.Logger) error {
 		MaxAudioBytes:   cfg.MaxAudioBytes,
 		DownloadTimeout: cfg.DownloadTimeout,
 		DefaultLanguage: cfg.DefaultLanguage,
+		Window:          cfg.WhisperWindow,
 	})
 
 	srv := server.New(cfg, store, audioStore, pool, logger, newJobID)

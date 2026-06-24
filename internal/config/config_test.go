@@ -69,3 +69,44 @@ func TestLoadRejectsBadDuration(t *testing.T) {
 		t.Fatal("expected error for bad JOB_TTL")
 	}
 }
+
+func TestLoadDefaultQueueSizeAndWindowDisabled(t *testing.T) {
+	t.Setenv("API_KEY", "a")
+	t.Setenv("WHISPER_API_KEY", "b")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.QueueSize != 5000 {
+		t.Errorf("QueueSize = %d, want 5000", cfg.QueueSize)
+	}
+	if cfg.WhisperWindow.Enabled() {
+		t.Error("window must be disabled when WHISPER_WINDOW_START/END are unset")
+	}
+}
+
+func TestLoadParsesWindow(t *testing.T) {
+	t.Setenv("API_KEY", "a")
+	t.Setenv("WHISPER_API_KEY", "b")
+	t.Setenv("WHISPER_WINDOW_START", "00:00")
+	t.Setenv("WHISPER_WINDOW_END", "06:00")
+	t.Setenv("WHISPER_WINDOW_TZ", "America/Sao_Paulo")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.WhisperWindow.Enabled() {
+		t.Fatal("window should be enabled")
+	}
+}
+
+func TestLoadRejectsBadWindow(t *testing.T) {
+	t.Setenv("API_KEY", "a")
+	t.Setenv("WHISPER_API_KEY", "b")
+	t.Setenv("WHISPER_WINDOW_START", "00:00") // end missing → invalid
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for incomplete window config")
+	}
+}

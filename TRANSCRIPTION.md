@@ -150,13 +150,16 @@ texto no Redis com TTL e **libera o áudio da memória** ao terminar.
 | `REDIS_URL`            | `redis://localhost:6379/0`    | conexão Redis (fila + estado)                   |
 | `WHISPER_UPSTREAM_URL` | `https://whisper.lai.ia.br`   | endpoint do Whisper hospedado                   |
 | `WHISPER_API_KEY`      | `<segredo>`                   | API key enviada ao Whisper (`X-API-Key`)        |
-| `MAX_CONCURRENCY`      | `2`                           | workers/chamadas simultâneas ao Whisper         |
-| `QUEUE_SIZE`           | `100`                         | profundidade máx. da fila antes de 429          |
+| `MAX_CONCURRENCY`      | `2`                           | goroutines de processamento (download/preparo); envio ao Whisper é serializado (1 por vez) |
+| `QUEUE_SIZE`           | `5000`                        | profundidade máx. da fila antes de 429          |
 | `JOB_TTL`              | `1h`                          | TTL do resultado/estado no Redis                |
 | `MAX_AUDIO_BYTES`      | `104857600` (100 MB)          | tamanho máx. de upload/download                 |
 | `DOWNLOAD_TIMEOUT`     | `600s`                        | timeout do download por URL                     |
 | `UPSTREAM_TIMEOUT`     | `600s`                        | timeout da chamada ao Whisper                   |
 | `DEFAULT_LANGUAGE`     | `pt`                          | idioma default quando não informado             |
+| `WHISPER_WINDOW_START` | `""` (vazio = desabilitado)   | início da janela de envio ao Whisper (`HH:MM`)  |
+| `WHISPER_WINDOW_END`   | `""`                          | fim da janela (`HH:MM`; pode cruzar meia-noite) |
+| `WHISPER_WINDOW_TZ`    | `America/Sao_Paulo`           | timezone IANA para interpretar START/END        |
 
 > **Segredos:** `API_KEY` e `WHISPER_API_KEY` em env/secret manager, **nunca** no código.
 

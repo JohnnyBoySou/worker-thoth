@@ -84,6 +84,22 @@ obrigatórios), `REDIS_URL`, `WHISPER_UPSTREAM_URL`, `MAX_CONCURRENCY`,
 `QUEUE_SIZE`, `JOB_TTL`, `MAX_AUDIO_BYTES`, `DOWNLOAD_TIMEOUT`,
 `UPSTREAM_TIMEOUT`, `DEFAULT_LANGUAGE`.
 
+### Janela de processamento (opcional)
+
+`WHISPER_WINDOW_START` / `WHISPER_WINDOW_END` (`HH:MM`) + `WHISPER_WINDOW_TZ`
+(IANA, default `America/Sao_Paulo`) restringem **quando** o worker envia ao
+Whisper. Fora da janela, os `POST` continuam aceitos (`202`) e os jobs
+**acumulam** na fila do Redis; o worker fica ocioso — **não baixa áudio nem chama
+o Whisper** — e drena tudo quando a janela abre. Útil para rodar de madrugada sem
+disputar a GPU com outros usos durante o dia. A janela pode cruzar a meia-noite
+(ex.: `22:00`→`05:00`). Vazio = desabilitado (processa a qualquer hora). Um job
+já em andamento ao fechar a janela **termina** normalmente. O estado da janela
+aparece em `GET /health` (`whisperWindow.{enabled,open,nextOpenSeconds}`).
+
+> Como a fila acumula uma pilha diária inteira, `QUEUE_SIZE` tem default `5000`.
+> Prefira jobs por **URL** (`POST /transcribe/url`): o áudio só é baixado na hora
+> de processar, então nada fica acumulado em RAM enquanto a janela está fechada.
+
 ## Rodando
 
 ```bash

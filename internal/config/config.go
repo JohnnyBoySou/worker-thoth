@@ -8,6 +8,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/lai/worker-transcription/internal/window"
 )
 
 // Config holds all runtime settings for the transcription worker.
@@ -24,6 +26,9 @@ type Config struct {
 	DownloadTimeout    time.Duration
 	UpstreamTimeout    time.Duration
 	DefaultLanguage    string
+	// WhisperWindow restricts when the worker processes jobs (sends to Whisper).
+	// Disabled (always open) unless WHISPER_WINDOW_START/END are set.
+	WhisperWindow window.Window
 }
 
 // Load reads configuration from the environment, applies defaults and validates
@@ -43,7 +48,7 @@ func Load() (Config, error) {
 	if cfg.MaxConcurrency, err = getEnvInt("MAX_CONCURRENCY", 2); err != nil {
 		return Config{}, err
 	}
-	if cfg.QueueSize, err = getEnvInt("QUEUE_SIZE", 100); err != nil {
+	if cfg.QueueSize, err = getEnvInt("QUEUE_SIZE", 5000); err != nil {
 		return Config{}, err
 	}
 	if cfg.MaxAudioBytes, err = getEnvInt64("MAX_AUDIO_BYTES", 104857600); err != nil {
@@ -57,6 +62,17 @@ func Load() (Config, error) {
 	}
 	if cfg.UpstreamTimeout, err = getEnvDuration("UPSTREAM_TIMEOUT", 600*time.Second); err != nil {
 		return Config{}, err
+	}
+
+	// Processing window (when the worker is allowed to send to Whisper). Empty
+	// start/end → always open. Invalid values fail fast at startup.
+	cfg.WhisperWindow, err = window.Parse(
+		os.Getenv("WHISPER_WINDOW_START"),
+		os.Getenv("WHISPER_WINDOW_END"),
+		getEnv("WHISPER_WINDOW_TZ", "America/Sao_Paulo"),
+	)
+	if err != nil {
+		return Config{}, fmt.Errorf("WHISPER_WINDOW config: %w", err)
 	}
 
 	if err := cfg.validate(); err != nil {
